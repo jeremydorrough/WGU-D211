@@ -1,0 +1,162 @@
+-- NOTE: This is also included in the written performance assessment along with the Tableau generated SQL code.
+
+-- Create the table used for Tableau using only California data
+CREATE TABLE wgu_data_for_tableau AS
+SELECT 
+    customer.Customer_id, 
+    customer.Tenure, 
+    customer.Churn, 
+    customer.Lng, 
+    customer.Lat, 
+    location.ZIP, 
+    location.City, 
+    contract.duration AS Contract, 
+    customer.Bandwidth_GP_Year, 
+    customer.Monthly_Charge, 
+    location.State
+FROM customer
+JOIN contract ON customer.contract_id = contract.contract_id
+JOIN payment ON customer.payment_id = payment.payment_id
+JOIN location ON customer.location_id = location.location_id
+WHERE location.State = 'CA';
+
+-- Add the foreign key constraint to the existing table
+ALTER TABLE wgu_data_for_tableau
+ADD CONSTRAINT fk_data_for_tableau_customer
+FOREIGN KEY (Customer_id) REFERENCES customer (Customer_id);
+
+
+-- Data transformations for provided data
+ALTER TABLE wgu_data_for_tableau
+DROP COLUMN State;
+
+ALTER TABLE wgu_data_for_tableau
+RENAME COLUMN Bandwidth_GP_Year TO Bandwidth_GB_Month;
+
+UPDATE wgu_data_for_tableau
+SET Bandwidth_GB_Month = Bandwidth_GB_Month / 12;
+
+UPDATE wgu_data_for_tableau
+SET bandwidth_gb_month = ROUND(bandwidth_gb_month);
+
+ALTER TABLE wgu_data_for_tableau
+ALTER COLUMN Tenure TYPE numeric USING ROUND(Tenure);
+
+ALTER TABLE wgu_data_for_tableau
+ALTER COLUMN Monthly_Charge TYPE numeric USING ROUND(Monthly_Charge);
+
+UPDATE wgu_data_for_tableau
+SET Contract = 'One Year'
+WHERE Contract = 'One year';
+
+-- Add column to differentiate internal data
+ALTER TABLE wgu_data_for_tableau
+ADD COLUMN source TEXT DEFAULT 'wgu';
+
+-- Create table for external data
+CREATE TABLE kaggle_data_for_tableau (
+"Customer ID" TEXT,
+"Gender" TEXT,
+"Age" INTEGER,
+"Married" TEXT,
+"Number of Dependents" INTEGER,
+"City" TEXT,
+"Zip Code" INTEGER,
+"Latitude" NUMERIC,
+"Longitude" NUMERIC,
+"Number of Referrals" INTEGER,
+"Tenure in Months" NUMERIC,
+"Offer" TEXT,
+"Phone Service" TEXT,
+"Avg Monthly Long Distance Charges" NUMERIC,
+"Multiple Lines" TEXT,
+"Internet Service" TEXT,
+"Internet Type" TEXT,
+"Avg Monthly GB Download" NUMERIC,
+"Online Security" TEXT,
+"Online Backup" TEXT,
+"Device Protection Plan" TEXT,
+"Premium Tech Support" TEXT,
+"Streaming TV" TEXT,
+"Streaming Movies" TEXT,
+"Streaming Music" TEXT,
+"Unlimited Data" TEXT,
+"Contract" TEXT,
+"Paperless Billing" TEXT,
+"Payment Method" TEXT,
+"Monthly Charge" NUMERIC,
+"Total Charges" NUMERIC,
+"Total Refunds" NUMERIC,
+"Total Extra Data Charges" NUMERIC,
+"Total Long Distance Charges" NUMERIC,
+"Total Revenue" NUMERIC,
+"Churn Category" TEXT,
+"Churn Reason" TEXT,
+"Source" TEXT
+);
+
+-- Import the Kaggle Data (The Kaggle CSV must be placed in C:/Users/Public/Downloads/), note that the external dataset CSV file has been renamed from "telecom_customer_churn.csv" for your convenience.
+COPY kaggle_data_for_tableau (
+    "Customer ID", "Gender", "Age", "Married", "Number of Dependents",
+    "City", "Zip Code", "Latitude", "Longitude", "Number of Referrals",
+    "Tenure in Months", "Offer", "Phone Service", "Avg Monthly Long Distance Charges",
+    "Multiple Lines", "Internet Service", "Internet Type", "Avg Monthly GB Download",
+    "Online Security", "Online Backup", "Device Protection Plan",
+    "Premium Tech Support", "Streaming TV", "Streaming Movies",
+    "Streaming Music", "Unlimited Data", "Contract", "Paperless Billing",
+    "Payment Method", "Monthly Charge", "Total Charges", "Total Refunds",
+    "Total Extra Data Charges", "Total Long Distance Charges", "Total Revenue",
+    "Churn Category", "Churn Reason", "Source"
+)
+FROM 'C:/Users/Public/Downloads/external_dataset.CSV'
+DELIMITER ',' CSV HEADER QUOTE '"' ESCAPE '''';
+
+
+-- Rename columns
+ALTER TABLE kaggle_data_for_tableau RENAME COLUMN "Customer ID" TO Customer_id;
+ALTER TABLE kaggle_data_for_tableau RENAME COLUMN "Monthly Charge" TO Monthly_Charge;
+ALTER TABLE kaggle_data_for_tableau RENAME COLUMN "Avg Monthly GB Download" TO Bandwidth_GB_Month;
+ALTER TABLE kaggle_data_for_tableau RENAME COLUMN "Tenure in Months" TO Tenure;
+ALTER TABLE kaggle_data_for_tableau RENAME COLUMN "Latitude" TO Lat;
+ALTER TABLE kaggle_data_for_tableau RENAME COLUMN "Longitude" TO Lng;
+ALTER TABLE kaggle_data_for_tableau RENAME COLUMN "Zip Code" TO ZIP;
+
+-- Update Churned to Yes and other values to No
+UPDATE kaggle_data_for_tableau SET "Churn Category" = 'Yes' WHERE "Churn Category" = 'Churned';
+UPDATE kaggle_data_for_tableau SET "Churn Category" = 'No' WHERE "Churn Category" != 'Yes';
+
+-- Remove customers using unlimited data service not used in analysis
+DELETE FROM kaggle_data_for_tableau WHERE "Unlimited Data" = 'Yes';
+
+-- Only keep data used in the analysis and add source column
+CREATE TABLE kaggle_data_for_tableau_temp AS
+SELECT
+Customer_id,
+Tenure,
+"Churn Category" AS Churn,
+Lng,
+Lat,
+ZIP,
+"City",
+"Contract",
+Bandwidth_GB_Month,
+Monthly_Charge,
+'kaggle' AS Source
+FROM kaggle_data_for_tableau;
+DROP TABLE kaggle_data_for_tableau;
+ALTER TABLE kaggle_data_for_tableau_temp RENAME TO kaggle_data_for_tableau;
+
+-- Delete rows where bandwidth is null
+DELETE FROM kaggle_data_for_tableau
+WHERE Bandwidth_GB_Month IS NULL;
+
+-- Round monthly charge to whole number
+ALTER TABLE kaggle_data_for_tableau
+ALTER COLUMN Monthly_Charge TYPE numeric USING ROUND(Monthly_Charge); 
+
+
+-- Create a new data_for_tableau table as a UNION of the wgu and kaggle tables
+CREATE TABLE data_for_tableau AS
+SELECT * FROM wgu_data_for_tableau
+UNION ALL
+SELECT * FROM kaggle_data_for_tableau;
